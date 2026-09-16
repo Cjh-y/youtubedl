@@ -16,6 +16,7 @@ jobs:
           echo "=== Xcode ==="
           xcode-select -p
           xcodebuild -version
+
           echo "=== iOS SDK ==="
           xcodebuild -showsdks
 
@@ -30,6 +31,7 @@ jobs:
         run: |
           set -e
 
+          rm -rf build
           mkdir -p build
 
           xcodebuild \
@@ -46,73 +48,64 @@ jobs:
             CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
             archive
 
-      - name: Inspect archive
+      - name: Find app bundle
         run: |
-          echo "========================================"
-          echo "Archive contents"
-          echo "========================================"
+          set -e
 
-          find build/YoutubeDL.xcarchive -maxdepth 6 -print
-
-          echo ""
-          echo "========================================"
-          echo ".app bundles"
-          echo "========================================"
+          echo "=== Searching for .app ==="
 
           find build/YoutubeDL.xcarchive \
             -type d \
             -name "*.app" \
             -print
 
-      - name: Create unsigned IPA
-        run: |
-          set -e
-
-          echo "Searching for YoutubeDL.app..."
-
           APP_PATH=$(find build/YoutubeDL.xcarchive \
             -type d \
-            -name "YoutubeDL.app" \
+            -name "*.app" \
             -print \
             -quit)
 
           if [ -z "$APP_PATH" ]; then
-            echo ""
-            echo "ERROR: YoutubeDL.app was not found!"
-            echo ""
-            echo "Available .app bundles:"
-            find build/YoutubeDL.xcarchive \
-              -type d \
-              -name "*.app" \
-              -print
-
+            echo "ERROR: No .app bundle found!"
             exit 1
           fi
 
           echo ""
-          echo "Found:"
+          echo "Found app:"
           echo "$APP_PATH"
-          echo ""
+
+          echo "$APP_PATH" > build/app_path.txt
+
+      - name: Create IPA
+        run: |
+          set -e
+
+          APP_PATH=$(cat build/app_path.txt)
+
+          echo "Using:"
+          echo "$APP_PATH"
 
           rm -rf build/Payload
           mkdir -p build/Payload
           mkdir -p build/IPA
 
-          cp -R "$APP_PATH" \
-            build/Payload/YoutubeDL.app
-
-          echo "Creating IPA..."
+          cp -R "$APP_PATH" build/Payload/YoutubeDL.app
 
           cd build
 
           rm -f YoutubeDL.ipa
+
+          echo "Creating IPA..."
 
           zip -r -q YoutubeDL.ipa Payload
 
           mv YoutubeDL.ipa IPA/YoutubeDL.ipa
 
           echo ""
-          echo "IPA created successfully:"
+          echo "========================================"
+          echo "IPA CREATED"
+          echo "========================================"
+
           ls -lh IPA/YoutubeDL.ipa
 
       - name: Verify IPA
@@ -121,20 +114,21 @@ jobs:
 
           IPA="build/IPA/YoutubeDL.ipa"
 
-          if [ ! -f "$IPA" ]; then
-            echo "ERROR: IPA does not exist!"
-            exit 1
-          fi
-
-          echo "IPA size:"
+          echo "=== IPA file ==="
           ls -lh "$IPA"
 
           echo ""
-          echo "IPA contents:"
+          echo "=== IPA contents ==="
+
           unzip -l "$IPA"
 
           echo ""
-          echo "IPA verification completed."
+          echo "=== Checking Payload ==="
+
+          unzip -l "$IPA" | grep "Payload/"
+
+          echo ""
+          echo "IPA verification successful."
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
